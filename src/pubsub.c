@@ -33,6 +33,7 @@
  * Pubsub low level API
  *----------------------------------------------------------------------------*/
 
+// 释放pubsubPattern结构体
 void freePubsubPattern(void *p) {
     pubsubPattern *pat = p;
 
@@ -40,6 +41,8 @@ void freePubsubPattern(void *p) {
     zfree(pat);
 }
 
+
+//先比较是否是同一个client,在比较pattern字符串
 int listMatchPubsubPattern(void *a, void *b) {
     pubsubPattern *pa = a, *pb = b;
 
@@ -47,6 +50,7 @@ int listMatchPubsubPattern(void *a, void *b) {
            (equalStringObjects(pa->pattern,pb->pattern));
 }
 
+// 返回单个客户端订阅总数 包括subscribe和psubscribe的
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels)+
@@ -59,6 +63,10 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
     dictEntry *de;
     list *clients = NULL;
     int retval = 0;
+
+// 客户端订阅channel,将该channel加入该客户端的pubsub_channels字典里面
+// 然后再将该客户端结构client加入到server的pubsub_channels字典里面
+// server.pubsub_channels字典结构以channel为key,以list为值, 这个list由所有订阅该channel的客户端client组成
 
     /* Add the channel to the client -> channels hash table */
     if (dictAdd(c->pubsub_channels,channel,NULL) == DICT_OK) {
@@ -75,6 +83,8 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         }
         listAddNodeTail(clients,c);
     }
+
+// 例如：如果客户端命令为 subscribe testchannel, 服务器就返回 subscribe testchannel 1 ,1为该客户端订阅的channel总数
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.subscribebulk);
@@ -83,6 +93,7 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
     return retval;
 }
 
+// 退订channel，流程和订阅正好相反
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
