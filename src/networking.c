@@ -844,12 +844,14 @@ void unlinkClient(client *c) {
     }
 }
 
+//连接断开，释放资源
 void freeClient(client *c) {
     listNode *ln;
 
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
     if (c->flags & CLIENT_PROTECTED) {
+        //如果是保护模式就异步释放
         freeClientAsync(c);
         return;
     }
@@ -865,6 +867,7 @@ void freeClient(client *c) {
                           CLIENT_CLOSE_ASAP|
                           CLIENT_BLOCKED)))
         {
+            //如果是master节点断开，就设置相关状态，下次连接时就进行增量同步
             replicationCacheMaster(c);
             return;
         }

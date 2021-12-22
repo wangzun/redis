@@ -134,10 +134,12 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     return retval;
 }
 
+// 订阅pattern，匹配该pattern的所有channel都会被该client接收
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(client *c, robj *pattern) {
     int retval = 0;
 
+// 先加入client的pubsub_patterns,然后加入server的pubsub_patterns
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
         retval = 1;
         pubsubPattern *pat;
@@ -156,6 +158,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
     return retval;
 }
 
+// 弃订pattern,流程和订阅正好相反
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
@@ -184,6 +187,8 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     return retval;
 }
 
+
+// 退订所有的channel
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
 int pubsubUnsubscribeAllChannels(client *c, int notify) {
@@ -208,6 +213,7 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
     return count;
 }
 
+// 退订所有的patterns
 /* Unsubscribe from all the patterns. Return the number of patterns the
  * client was subscribed from. */
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
@@ -232,6 +238,8 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
+
+// 推送channel消息,找到所有订阅该channel和所有匹配该channel的client,立刻将message内容写入client发送buf里面
 /* Publish a message */
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
@@ -285,14 +293,18 @@ int pubsubPublishMessage(robj *channel, robj *message) {
  * Pubsub commands implementation
  *----------------------------------------------------------------------------*/
 
+//订阅命令:  SUBSCRIBE channel [channel ...]
 void subscribeCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
+
+    //在flags处加入pubsub标志
     c->flags |= CLIENT_PUBSUB;
 }
 
+//取消订阅命令：UNSUBSCRIBE [channel [channel ...]]   UNSUBSCRIBE后不接channel时默认取消所有channel
 void unsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
@@ -303,8 +315,10 @@ void unsubscribeCommand(client *c) {
             pubsubUnsubscribeChannel(c,c->argv[j],1);
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    //在flags处去掉pubsub标志
 }
 
+//订阅pattern命令:  PSUBSCRIBE pattern [pattern ...]
 void psubscribeCommand(client *c) {
     int j;
 
@@ -313,6 +327,7 @@ void psubscribeCommand(client *c) {
     c->flags |= CLIENT_PUBSUB;
 }
 
+//取消订阅pattern命令:  PUNSUBSCRIBE [pattern [pattern ...]]  PUNSUBSCRIBE后不接pattern时默认取消所有pattern
 void punsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
@@ -325,15 +340,19 @@ void punsubscribeCommand(client *c) {
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+//推送消息: PUBLISH channel message
 void publishCommand(client *c) {
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
+        //将消息发送到集群其他节点
         clusterPropagatePublish(c->argv[1],c->argv[2]);
     else
+        //强制将命令发到副本
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
 }
 
+//查看发布订阅系统状态命令
 /* PUBSUB command for Pub/Sub introspection. */
 void pubsubCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
