@@ -73,9 +73,12 @@ void listEmpty(list *list)
 /* Free the whole list.
  *
  * This function can't fail. */
+//释放双向链表
 void listRelease(list *list)
 {
+    //先清空双向链表的内容
     listEmpty(list);
+    //再释放双向链表的结构体
     zfree(list);
 }
 
@@ -85,6 +88,7 @@ void listRelease(list *list)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+//增加节点到双向链表头部
 list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
@@ -111,6 +115,8 @@ list *listAddNodeHead(list *list, void *value)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+
+//增加节点到双向链表尾部
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
@@ -131,6 +137,8 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
+
+//在选择节点old_node的前面或者后面插入数据
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
@@ -164,12 +172,17 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
  * It's up to the caller to free the private value of the node.
  *
  * This function can't fail. */
+//删除节点
 void listDelNode(list *list, listNode *node)
 {
     if (node->prev)
+        //如果node节点有前一个节点就把前一个节点的next值改为node节点的后一个节点地址
         node->prev->next = node->next;
     else
+       //如果node节点没有前一个节点，就将list的head值改为node的后一个节点地址
         list->head = node->next;
+
+    // 同上
     if (node->next)
         node->next->prev = node->prev;
     else
@@ -179,6 +192,7 @@ void listDelNode(list *list, listNode *node)
     list->len--;
 }
 
+//下面是迭代器相关内容
 /* Returns a list iterator 'iter'. After the initialization every
  * call to listNext() will return the next element of the list.
  *
@@ -247,6 +261,7 @@ listNode *listNext(listIter *iter)
  * the original node is used as value of the copied node.
  *
  * The original list both on success or error is never modified. */
+//复制list，默认没有设置dup函数的时候，复制value的指针,设置了dup函数的按照dup函数来复制
 list *listDup(list *orig)
 {
     list *copy;
@@ -287,6 +302,7 @@ list *listDup(list *orig)
  * On success the first matching node pointer is returned
  * (search starts from head). If no matching node exists
  * NULL is returned. */
+//找到匹配key的node，默认没有设置match函数就比较key和node->value的值,设置了函数match的安装match来比较
 listNode *listSearchKey(list *list, void *key)
 {
     listIter iter;
@@ -312,6 +328,8 @@ listNode *listSearchKey(list *list, void *key)
  * and so on. Negative integers are used in order to count
  * from the tail, -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
+
+//按照index来寻找node，0就是head，1就是head->next,-1就是head->tail
 listNode *listIndex(list *list, long index) {
     listNode *n;
 
