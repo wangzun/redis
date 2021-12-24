@@ -76,6 +76,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
+    //根据操作系统不同，选用不同版本
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -205,6 +206,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+//创建一个timeEvent，加入到timeEventHead头部
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -227,6 +229,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     return id;
 }
 
+// 遍历找到id，做标记暂时不删除
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -251,6 +254,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
+//找到when_sec最小的timeEvent
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -271,7 +275,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
     long long maxId;
-    time_t now = time(NULL);
+    
+    time_t now = time(NULL); //获取当前时间戳
 
     /* If the system clock is moved to the future, and then set back to the
      * right value, time events may be delayed in a random way. Often this
@@ -281,7 +286,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
-    if (now < eventLoop->lastTime) {
+    if (now < eventLoop->lastTime) {//系统时间发生错误,有可能是用户手动调整系统时间
         te = eventLoop->timeEventHead;
         while(te) {
             te->when_sec = 0;
@@ -296,7 +301,9 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         long now_sec, now_ms;
         long long id;
 
+
         /* Remove events scheduled for deletion. */
+        //删掉之前设为AE_DELETED_EVENT_ID标记的timeEvent
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
             if (te->prev)
@@ -317,6 +324,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
          * add new timers on the head, however if we change the implementation
          * detail, this check may be useful again: we keep it here for future
          * defense. */
+        //按照代码逻辑来看，不可能出现这种情况，这个地方是容错？
         if (te->id > maxId) {
             te = te->next;
             continue;
@@ -330,7 +338,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
-            if (retval != AE_NOMORE) {
+            if (retval != AE_NOMORE) {//循环执行timer
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
                 te->id = AE_DELETED_EVENT_ID;
@@ -408,6 +416,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
+        //找到最近的timeEvent,将时间间隔传入epoll层,为了防止epoll_wait超过timeEvent的时间还不返回,时间事件要定时执行
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
@@ -452,6 +461,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 }
             }
 
+            //一般情况是先执行读后执行写，但如果设置了AE_BARRIER就反转处理
             /* If we have to invert the call, fire the readable event now
              * after the writable one. */
             if (invert && fe->mask & mask & AE_READABLE) {
