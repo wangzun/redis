@@ -345,6 +345,7 @@ listNode *listIndex(list *list, long index) {
 }
 
 /* Rotate the list removing the tail node and inserting it to the head. */
+//将tail数据插入head前
 void listRotateTailToHead(list *list) {
     if (listLength(list) <= 1) return;
 
@@ -360,6 +361,7 @@ void listRotateTailToHead(list *list) {
 }
 
 /* Rotate the list removing the head node and inserting it to the tail. */
+//将head数据插入tail后
 void listRotateHeadToTail(list *list) {
     if (listLength(list) <= 1) return;
 
@@ -376,6 +378,7 @@ void listRotateHeadToTail(list *list) {
 
 /* Add all the elements of the list 'o' at the end of the
  * list 'l'. The list 'other' remains empty but otherwise valid. */
+//连接两个list，o在l后面
 void listJoin(list *l, list *o) {
     if (o->head)
         o->head->prev = l->tail;
