@@ -48,16 +48,19 @@
 
 #include "anet.h"
 
+//将fmt及其后面的信息写入err里面
 static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
 
     if (!err) return;
+    //构造va_list数据，总是和va_end成对出现
     va_start(ap, fmt);
     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
     va_end(ap);
 }
 
+//设置fd是否为阻塞，错误信息写入err
 int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 
@@ -72,7 +75,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
     if (non_block)
         flags |= O_NONBLOCK;
     else
-        flags &= ~O_NONBLOCK;
+        flags &= ~O_NONBLOCK;//non_block为0时设置socket为blocking
 
     if (fcntl(fd, F_SETFL, flags) == -1) {
         anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
@@ -92,6 +95,7 @@ int anetBlock(char *err, int fd) {
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */
+// 启动tcp keepalive选项，linux默认是关闭
 int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
@@ -138,6 +142,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     return ANET_OK;
 }
 
+//设置tcp，nodelay,降低延迟，但是会降低吞吐量
 static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
@@ -158,7 +163,7 @@ int anetDisableTcpNoDelay(char *err, int fd)
     return anetSetTcpNoDelay(err, fd, 0);
 }
 
-
+//设置发送缓存区
 int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
@@ -181,6 +186,7 @@ int anetTcpKeepAlive(char *err, int fd)
 
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
+//设置发送超时，单位毫秒
 int anetSendTimeout(char *err, int fd, long long ms) {
     struct timeval tv;
 
@@ -200,6 +206,7 @@ int anetSendTimeout(char *err, int fd, long long ms) {
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
  * into a validating / normalizing function. */
+ // hostname获取ip地址
 int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
                        int flags)
 {
@@ -235,6 +242,7 @@ int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
     return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
 }
 
+//设置端口重用
 static int anetSetReuseAddr(char *err, int fd) {
     int yes = 1;
     /* Make sure connection-intensive things like the redis benchmark
@@ -246,6 +254,7 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
+//创建socket
 static int anetCreateSocket(char *err, int domain) {
     int s;
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
