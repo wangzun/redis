@@ -96,16 +96,19 @@ int anetBlock(char *err, int fd) {
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */
 // 启动tcp keepalive选项，linux默认是关闭
+// TCP Keepalive必须在 没有任何数据（包括ACK包）接收之后的周期内才会被发送
 int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
 
+    //开启选项,但是使用的是默认参数
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
         return ANET_ERR;
     }
 
+    //下面为设置具体keepalive具体参数
 #ifdef __linux__
     /* Default settings are more or less garbage, with the keepalive time
      * set to 7200 by default on Linux. Modify settings to make the feature
@@ -113,6 +116,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     /* Send first probe after interval. */
     val = interval;
+    //在TCP保活打开的情况下，最后一次数据交换到TCP发送第一个保活探测包的间隔，即允许的持续空闲时长，或者说每次正常发送心跳的周期，默认值为7200s（2h）
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
         return ANET_ERR;
@@ -123,6 +127,7 @@ int anetKeepAlive(char *err, int fd, int interval)
      * an error (see the next setsockopt call). */
     val = interval/3;
     if (val == 0) val = 1;
+    //没有接收到对方确认，继续发送保活探测包的发送频率，默认值为75s。
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
@@ -131,6 +136,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     /* Consider the socket in error state after three we send three ACK
      * probes without getting a reply. */
     val = 3;
+    //没有接收到对方确认，继续发送保活探测包次数，默认值为9（次）
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
@@ -186,7 +192,7 @@ int anetTcpKeepAlive(char *err, int fd)
 
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
-//设置发送超时，单位毫秒
+//设置发送超时，单位毫秒,成功后blocking的fd也会变为nonblocking,ms为0是取消timeout
 int anetSendTimeout(char *err, int fd, long long ms) {
     struct timeval tv;
 
@@ -274,6 +280,7 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
+//通用connect
 static int anetTcpGenericConnect(char *err, char *addr, int port,
                                  char *source_addr, int flags)
 {
@@ -285,6 +292,18 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
     memset(&hints,0,sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+
+// addr: 主机名("www.baidu.com")或者是数字化的地址字符串(IPv4的点分十进制串("192.168.1.100")或者IPv6的16进制串("2000::1:2345:6789:abcd"))，
+// 如果 ai_flags 中设置了AI_NUMERICHOST 标志，那么该参数只能是数字化的地址字符串，不能是域名，
+
+// portstr: 服务名可以是十进制的端口号("8080")字符串，也可以是已定义的服务名称，如"ftp"、"http"等,详细请查看/etc/services 文件，
+// 最后翻译成对应服务的端口号。如果此参数设置为NULL，那么返回的socket地址中的端口号不会被设置。
+// 如果 ai_flags 设置了AI_NUMERICSERV 标志并且该参数未设置为NULL，那么该参数必须是一个指向10进制的端口号字符串，
+
+// hints: 该参数指向用户设定的 struct addrinfo 结构体，只能设定该结构体中 ai_family、ai_socktype、ai_protocol 和 ai_flags 四个域，
+// 其他域必须设置为0 或者 NULL, 通常是申请 结构体变量后使用memset()初始化再设定指定的四个域。
+
+// serverinfo: 该参数获取一个指向存储结果的 struct addrinfo 结构体列表，使用完成后调用 freeaddrinfo() 释放存储结果空间。
 
     if ((rv = getaddrinfo(addr,portstr,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
@@ -347,6 +366,7 @@ end:
 
     /* Handle best effort binding: if a binding address was used, but it is
      * not possible to create a socket, try again without a binding address. */
+    //但绑定地址创建socket失败后，选择不绑定地址再试一次
     if (s == ANET_ERR && source_addr && (flags & ANET_CONNECT_BE_BINDING)) {
         return anetTcpGenericConnect(err,addr,port,NULL,flags);
     } else {
@@ -370,7 +390,7 @@ int anetTcpNonBlockBindConnect(char *err, char *addr, int port,
     return anetTcpGenericConnect(err,addr,port,source_addr,
             ANET_CONNECT_NONBLOCK);
 }
-
+//尽力创建一个nonblock连接
 int anetTcpNonBlockBestEffortBindConnect(char *err, char *addr, int port,
                                          char *source_addr)
 {
@@ -378,6 +398,7 @@ int anetTcpNonBlockBestEffortBindConnect(char *err, char *addr, int port,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
 }
 
+// unix domin socket连接
 int anetUnixGenericConnect(char *err, char *path, int flags)
 {
     int s;
@@ -418,6 +439,7 @@ int anetUnixNonBlockConnect(char *err, char *path)
 
 /* Like read(2) but make sure 'count' is read before to return
  * (unless error or EOF condition is encountered) */
+//尽力读取count个字节的数据
 int anetRead(int fd, char *buf, int count)
 {
     ssize_t nread, totlen = 0;
@@ -433,6 +455,7 @@ int anetRead(int fd, char *buf, int count)
 
 /* Like write(2) but make sure 'count' is written before to return
  * (unless error is encountered) */
+//尽力写入count个字节的数据
 int anetWrite(int fd, char *buf, int count)
 {
     ssize_t nwritten, totlen = 0;
@@ -461,6 +484,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
     return ANET_OK;
 }
 
+// 只支持ipv6
 static int anetV6Only(char *err, int s) {
     int yes = 1;
     if (setsockopt(s,IPPROTO_IPV6,IPV6_V6ONLY,&yes,sizeof(yes)) == -1) {
@@ -471,6 +495,7 @@ static int anetV6Only(char *err, int s) {
     return ANET_OK;
 }
 
+//通用tcp server
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
     int s = -1, rv;
@@ -583,6 +608,7 @@ int anetUnixAccept(char *err, int s) {
     return fd;
 }
 
+//获取ip，port字符串
 int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
