@@ -350,6 +350,7 @@ void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+//obj的引用计数减一，如果减为0了就释放内存
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {

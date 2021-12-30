@@ -67,6 +67,7 @@ typedef struct aofrwblock {
 /* This function free the old AOF rewrite buffer if needed, and initialize
  * a fresh new one. It tests for server.aof_rewrite_buf_blocks equal to NULL
  * so can be used for the first initialization as well. */
+//重置aof_rewrite_buf_blocks列表
 void aofRewriteBufferReset(void) {
     if (server.aof_rewrite_buf_blocks)
         listRelease(server.aof_rewrite_buf_blocks);
@@ -76,6 +77,7 @@ void aofRewriteBufferReset(void) {
 }
 
 /* Return the current size of the AOF rewrite buffer. */
+//返回aof_rewrite_buf_blocks总使用字节
 unsigned long aofRewriteBufferSize(void) {
     listNode *ln;
     listIter li;
@@ -92,6 +94,7 @@ unsigned long aofRewriteBufferSize(void) {
 /* Event handler used to send data to the child process doing the AOF
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
+//写入因AOF rewrite而产生的差异数据
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
@@ -101,6 +104,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
     UNUSED(mask);
 
+    //循环写入，直到aof_stop_sending_diff不为0，或者aof_rewrite_buf_blocks里的数据被写完
     while(1) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
@@ -113,7 +117,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
             nwritten = write(server.aof_pipe_write_data_to_child,
                              block->buf,block->used);
             if (nwritten <= 0) return;
-            memmove(block->buf,block->buf+nwritten,block->used-nwritten);
+            memmove(block->buf,block->buf+nwritten,block->used-nwritten); //将还未写入数据的移动到buf的开始位置
             block->used -= nwritten;
             block->free += nwritten;
         }
@@ -122,6 +126,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
+//将命令数据写入aof_rewrite_buf_blocks尾部空闲buf,没有就创建一个blocks加入aof_rewrite_buf_blocks尾部
 void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
@@ -162,6 +167,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
+    //将aof_pipe_write_data_to_child这个pipe管道加入event_loop监听
     if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
@@ -171,6 +177,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 /* Write the buffer (possibly composed of multiple blocks) into the specified
  * fd. If a short write or any other error happens -1 is returned,
  * otherwise the number of bytes written is returned. */
+//将aof_rewrite_buf_blocks里的数据写入指定fd，如果出现没写完或者其他error就返回-1,成功就返回写入总数据长度
 ssize_t aofRewriteBufferWrite(int fd) {
     listNode *ln;
     listIter li;
@@ -199,12 +206,14 @@ ssize_t aofRewriteBufferWrite(int fd) {
 
 /* Return true if an AOf fsync is currently already in progress in a
  * BIO thread. */
+//判断 AOF fsync是否正在BIO thread进行
 int aofFsyncInProgress(void) {
     return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 }
 
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
+//建立一个 AOF fsync任务，放到BIO线程里执行,传递的参数为fd
 void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }

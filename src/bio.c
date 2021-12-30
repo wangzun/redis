@@ -93,6 +93,7 @@ void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
 /* Initialize the background system, spawning the thread. */
+//初始化线程池,其中有BIO_NUM_OPS个线程，各自执行相关任务
 void bioInit(void) {
     pthread_attr_t attr;
     pthread_t thread;
@@ -128,6 +129,7 @@ void bioInit(void) {
     }
 }
 
+//创建一个job加入任务队列
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     struct bio_job *job = zmalloc(sizeof(*job));
 
@@ -142,6 +144,7 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     pthread_mutex_unlock(&bio_mutex[type]);
 }
 
+//job的执行线程
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
     unsigned long type = (unsigned long) arg;
@@ -162,9 +165,9 @@ void *bioProcessBackgroundJobs(void *arg) {
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
-    sigemptyset(&sigset);
-    sigaddset(&sigset, SIGALRM);
-    if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
+    sigemptyset(&sigset); //信号集初始化为空
+    sigaddset(&sigset, SIGALRM); //增加SIGALRM信号
+    if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) //屏蔽SIGALRM信号 ,为什么要屏蔽这个信号?
         serverLog(LL_WARNING,
             "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
 
@@ -172,7 +175,9 @@ void *bioProcessBackgroundJobs(void *arg) {
         listNode *ln;
 
         /* The loop always starts with the lock hold. */
-        if (listLength(bio_jobs[type]) == 0) {
+        if (listLength(bio_jobs[type]) == 0)
+        {
+            //释放bio_newjob_cond[type],然后按照bio_mutex[type]阻塞,返回时再 lock bio_newjob_cond[type]
             pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
             continue;
         }
@@ -216,6 +221,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 }
 
 /* Return the number of pending jobs of the specified type. */
+//获得排队中的job数量
 unsigned long long bioPendingJobsOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);
