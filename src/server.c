@@ -2789,6 +2789,7 @@ int processCommand(client *c) {
 
 /* Close listening sockets. Also unlink the unix domain socket if
  * unlink_unix_socket is non-zero. */
+//关闭监听端口,包括对外的和cluter的，还有unix_socket
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
@@ -4039,8 +4040,9 @@ void setupSignalHandlers(void) {
  * of the parent process, e.g. fd(socket or flock) etc.
  * should close the resources not used by the child process, so that if the
  * parent restarts it can bind/lock despite the child possibly still running. */
+ // 子进程清理不用的父进程资源
 void closeClildUnusedResourceAfterFork() {
-    closeListeningSockets(0);
+    closeListeningSockets(0);//清理监听端口
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
 

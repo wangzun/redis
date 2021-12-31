@@ -219,6 +219,7 @@ void aof_background_fsync(int fd) {
 }
 
 /* Kills an AOFRW child process if exists */
+//kill掉执行aof重写的子进程
 static void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
@@ -227,7 +228,8 @@ static void killAppendOnlyChild(void) {
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.aof_child_pid);
     if (kill(server.aof_child_pid,SIGUSR1) != -1) {
-        while(wait3(&statloc,0,NULL) != server.aof_child_pid);
+        //??? 为什么不用wait4?
+        while(wait3(&statloc,0,NULL) != server.aof_child_pid); //阻塞直到aof_child_pid进程完全清理退出
     }
     /* Reset the buffer accumulating changes while the child saves. */
     aofRewriteBufferReset();
@@ -235,13 +237,16 @@ static void killAppendOnlyChild(void) {
     server.aof_child_pid = -1;
     server.aof_rewrite_time_start = -1;
     /* Close pipes used for IPC between the two processes. */
+    //删除一些相关pipe管道
     aofClosePipes();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
+// 终止aof功能
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
+    //强制将 aof buf 写入磁盘
     flushAppendOnlyFile(1);
     redis_fsync(server.aof_fd);
     close(server.aof_fd);
@@ -254,6 +259,7 @@ void stopAppendOnly(void) {
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
+// 打开aof写入
 int startAppendOnly(void) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     int newfd;
@@ -272,12 +278,13 @@ int startAppendOnly(void) {
         return C_ERR;
     }
     if (server.rdb_child_pid != -1) {
-        server.aof_rewrite_scheduled = 1;
+        server.aof_rewrite_scheduled = 1;//先不执行aof rewrite,设置标志，下一个timer再做判断是否执行
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
          * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
+        //如果已经有一个 aof rewrite 子进程，就杀掉重新启动一个
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
@@ -1520,10 +1527,12 @@ void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
  * and two other pipes used by the children to signal it finished with
  * the rewrite so no more data should be written, and another for the
  * parent to acknowledge it understood this new condition. */
+//创建父子进程相互通信的三个pipe
 int aofCreatePipes(void) {
     int fds[6] = {-1, -1, -1, -1, -1, -1};
     int j;
 
+    //pipe(pipefd[2]) 函数pipefd[0] refers to the read end of the pipe.  pipefd[1] refers to the write end of the pipe.
     if (pipe(fds) == -1) goto error; /* parent -> children data. */
     if (pipe(fds+2) == -1) goto error; /* children -> parent ack. */
     if (pipe(fds+4) == -1) goto error; /* parent -> children ack. */
@@ -1587,8 +1596,8 @@ int rewriteAppendOnlyFileBackground(void) {
         char tmpfile[256];
 
         /* Child */
-        closeClildUnusedResourceAfterFork();
-        redisSetProcTitle("redis-aof-rewrite");
+        closeClildUnusedResourceAfterFork();//清理不用资源
+        redisSetProcTitle("redis-aof-rewrite");//修改进程名
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty(-1);
@@ -1652,6 +1661,7 @@ void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
+    //从文件系统删除一个名字，如果这个名字是一个文件的最后一个link，同时没有任何进程打开这个文件，就删除这个文件
     unlink(tmpfile);
 }
 

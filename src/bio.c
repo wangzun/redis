@@ -159,6 +159,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
+    //确保该线程可以被kill
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
@@ -177,7 +178,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* The loop always starts with the lock hold. */
         if (listLength(bio_jobs[type]) == 0)
         {
-            //释放bio_newjob_cond[type],然后按照bio_mutex[type]阻塞,返回时再 lock bio_newjob_cond[type]
+            //释放bio_mutex[type] ,然后按照bio_newjob_cond[type]阻塞,返回时再 lock bio_mutex[type]
             pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
             continue;
         }
@@ -240,6 +241,7 @@ unsigned long long bioPendingJobsOfType(int type) {
  * This function is useful when from another thread, we want to wait
  * a bio.c thread to do more work in a blocking way.
  */
+//如果job队列里面有任务在排队，这个函数会阻塞知道下一个job执行，然后返回正在排队的数量
 unsigned long long bioWaitStepOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);
@@ -260,8 +262,8 @@ void bioKillThreads(void) {
     int err, j;
 
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        if (pthread_cancel(bio_threads[j]) == 0) {
-            if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
+        if (pthread_cancel(bio_threads[j]) == 0) {//pthread_cancel调用并不等待线程终止，它只提出请求
+            if ((err = pthread_join(bio_threads[j],NULL)) != 0) {//以阻塞的方式等待bio_threads[j]线程结束
                 serverLog(LL_WARNING,
                     "Bio thread for job type #%d can be joined: %s",
                         j, strerror(err));

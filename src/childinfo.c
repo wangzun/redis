@@ -30,6 +30,8 @@
 #include "server.h"
 #include <unistd.h>
 
+//本模块为子进程用来传递Copy on write size 给父进程
+
 /* Open a child-parent channel used in order to move information about the
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
