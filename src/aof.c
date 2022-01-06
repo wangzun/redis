@@ -206,7 +206,7 @@ ssize_t aofRewriteBufferWrite(int fd) {
 
 /* Return true if an AOf fsync is currently already in progress in a
  * BIO thread. */
-//判断 AOF fsync是否正在BIO thread进行
+//判断 AOF fsync是否正在BIO thread中进行
 int aofFsyncInProgress(void) {
     return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 }
@@ -310,6 +310,7 @@ int startAppendOnly(void) {
  * is likely to fail. However apparently in modern systems this is no longer
  * true, and in general it looks just more resilient to retry the write. If
  * there is an actual error condition we'll get it at the next try. */
+//写入len长度数据，遭遇错误时也继续
 ssize_t aofWrite(int fd, const char *buf, size_t len) {
     ssize_t nwritten = 0, totwritten = 0;
 
@@ -349,6 +350,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  *
  * However if force is set to 1 we'll write regardless of the background
  * fsync. */
+//???
 #define AOF_WRITE_LOG_ERROR_RATE 30 /* Seconds between errors logging. */
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
@@ -378,7 +380,7 @@ void flushAppendOnlyFile(int force) {
         /* With this append fsync policy we do background fsyncing.
          * If the fsync is still in progress we can try to delay
          * the write for a couple of seconds. */
-        if (sync_in_progress) {
+        if (sync_in_progress) {//已经进行磁盘同步任务时，等待这个任务完成，最多等待2秒的时间
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
                  * postponing the flush and return. */
@@ -401,6 +403,7 @@ void flushAppendOnlyFile(int force) {
      * there is much to do about the whole server stopping for power problems
      * or alike */
 
+    // 写aof文件， 并记录写入时间
     latencyStartMonitor(latency);
     nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
@@ -422,7 +425,7 @@ void flushAppendOnlyFile(int force) {
     server.aof_flush_postponed_start = 0;
 
     if (nwritten != (ssize_t)sdslen(server.aof_buf)) {
-        static time_t last_write_error_log = 0;
+        static time_t last_write_error_log = 0; //注：此变量为静态变量
         int can_log = 0;
 
         /* Limit logging rate to 1 line per AOF_WRITE_LOG_ERROR_RATE seconds. */
@@ -447,7 +450,7 @@ void flushAppendOnlyFile(int force) {
                                        (long long)sdslen(server.aof_buf));
             }
 
-            if (ftruncate(server.aof_fd, server.aof_current_size) == -1) {
+            if (ftruncate(server.aof_fd, server.aof_current_size) == -1) { //去掉未写完全的部分
                 if (can_log) {
                     serverLog(LL_WARNING, "Could not remove short write "
                              "from the append-only file.  Redis may refuse "
@@ -1708,6 +1711,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
 
+        //将aof rewrite期间产生的差异写入 rewrite临时aof文件
         if (aofRewriteBufferWrite(newfd) == -1) {
             serverLog(LL_WARNING,
                 "Error trying to flush the parent diff to the rewritten AOF: %s", strerror(errno));
