@@ -259,7 +259,7 @@ void stopAppendOnly(void) {
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
-// 打开aof写入
+// 开启aof功能
 int startAppendOnly(void) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     int newfd;
@@ -289,6 +289,7 @@ int startAppendOnly(void) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
+        //正式开启前先执行一次rewrite用于初始化aof_buf数据
         if (rewriteAppendOnlyFileBackground() == C_ERR) {
             close(newfd);
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
@@ -357,7 +358,7 @@ void flushAppendOnlyFile(int force) {
     int sync_in_progress = 0;
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) {
+    if (sdslen(server.aof_buf) == 0) {//当aof_buf为0长度时，只要满足下列条件，也执行同步到硬盘
         /* Check if we need to do fsync even the aof buffer is empty,
          * because previously in AOF_FSYNC_EVERYSEC mode, fsync is
          * called only when aof buffer is not empty, so if users
@@ -413,9 +414,9 @@ void flushAppendOnlyFile(int force) {
      * We also use an additional event name to save all samples which is
      * useful for graphing / monitoring purposes. */
     if (sync_in_progress) {
-        latencyAddSampleIfNeeded("aof-write-pending-fsync",latency);
+        latencyAddSampleIfNeeded("aof-write-pending-fsync",latency); //当正在进行同步的时候write延迟
     } else if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) {
-        latencyAddSampleIfNeeded("aof-write-active-child",latency);
+        latencyAddSampleIfNeeded("aof-write-active-child",latency); //当开启子进程的时候write延迟
     } else {
         latencyAddSampleIfNeeded("aof-write-alone",latency);
     }
@@ -429,7 +430,7 @@ void flushAppendOnlyFile(int force) {
         int can_log = 0;
 
         /* Limit logging rate to 1 line per AOF_WRITE_LOG_ERROR_RATE seconds. */
-        if ((server.unixtime - last_write_error_log) > AOF_WRITE_LOG_ERROR_RATE) {
+        if ((server.unixtime - last_write_error_log) > AOF_WRITE_LOG_ERROR_RATE) { //减少日志量
             can_log = 1;
             last_write_error_log = server.unixtime;
         }
@@ -483,7 +484,7 @@ void flushAppendOnlyFile(int force) {
              * was no way to undo it with ftruncate(2). */
             if (nwritten > 0) {
                 server.aof_current_size += nwritten;
-                sdsrange(server.aof_buf,nwritten,-1);
+                sdsrange(server.aof_buf,nwritten,-1);//已经写入的部分在aof_buf里去掉
             }
             return; /* We'll try again on the next call... */
         }
@@ -500,7 +501,7 @@ void flushAppendOnlyFile(int force) {
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
      * arena size of 4k minus some overhead (but is otherwise arbitrary). */
-    if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) {
+    if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) { //如果aof_buf总容量小于4000就复用内存空间
         sdsclear(server.aof_buf);
     } else {
         sdsfree(server.aof_buf);
@@ -510,6 +511,7 @@ void flushAppendOnlyFile(int force) {
 try_fsync:
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
      * children doing I/O in the background. */
+     //当no-appendfsync-on-rewrite设为yes的时候，同时开启了子进程任务,就不执行fsync
     if (server.aof_no_fsync_on_rewrite &&
         (server.aof_child_pid != -1 || server.rdb_child_pid != -1))
             return;
@@ -534,6 +536,7 @@ try_fsync:
     }
 }
 
+//拼装命令字符串 格式：*参数个数\r\n[$参数长度\r\n实际参数\r\n]
 sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     char buf[32];
     int len, j;
