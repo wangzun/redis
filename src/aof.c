@@ -599,13 +599,14 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     return buf;
 }
 
+//写命令同步到aof
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     robj *tmpargv[3];
 
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
-    if (dictid != server.aof_selected_db) {
+    if (dictid != server.aof_selected_db) {//不是aof选择的db的时候要加上SELECT DB命令
         char seldb[64];
 
         snprintf(seldb,sizeof(seldb),"%d",dictid);
@@ -615,7 +616,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     }
 
     if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
-        cmd->proc == expireatCommand) {
+        cmd->proc == expireatCommand) {//相对时间和秒级的绝对时间全部转换为通用毫秒绝对时间
         /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
         buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
     } else if (cmd->proc == setexCommand || cmd->proc == psetexCommand) {
@@ -652,8 +653,8 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a
      * positive reply about the operation performed. */
-    if (server.aof_state == AOF_ON)
-        server.aof_buf = sdscatlen(server.aof_buf,buf,sdslen(buf));
+    if (server.aof_state == AOF_ON) 
+        server.aof_buf = sdscatlen(server.aof_buf,buf,sdslen(buf)); //命令写入aof_buf
 
     /* If a background append only file rewriting is in progress we want to
      * accumulate the differences between the child DB and the current one
@@ -671,6 +672,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
 
 /* In Redis commands are always executed in the context of a client, so in
  * order to load the append only file we need to create a fake client. */
+//执行命令需要一个客户端，可以创建一个假的客户端
 struct client *createFakeClient(void) {
     struct client *c = zmalloc(sizeof(*c));
 
@@ -698,6 +700,7 @@ struct client *createFakeClient(void) {
     return c;
 }
 
+//清理命令参数
 void freeFakeClientArgv(struct client *c) {
     int j;
 
@@ -706,6 +709,7 @@ void freeFakeClientArgv(struct client *c) {
     zfree(c->argv);
 }
 
+//释放整个client
 void freeFakeClient(struct client *c) {
     sdsfree(c->querybuf);
     listRelease(c->reply);
@@ -735,7 +739,7 @@ int loadAppendOnlyFile(char *filename) {
      * is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
-    if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
+    if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) { //aof文件为空的情况
         server.aof_current_size = 0;
         server.aof_fsync_offset = server.aof_current_size;
         fclose(fp);
@@ -747,7 +751,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoading(fp);
+    startLoading(fp); //设置开始加载db的标志
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -755,7 +759,7 @@ int loadAppendOnlyFile(char *filename) {
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
         /* No RDB preamble, seek back at 0 offset. */
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
-    } else {
+    } else { //混合储存，文件前面存的RDB格式数据，后面接着AOF格式数据
         /* RDB preamble. Pass loading the RDB functions. */
         rio rdb;
 
@@ -780,13 +784,13 @@ int loadAppendOnlyFile(char *filename) {
         struct redisCommand *cmd;
 
         /* Serve the clients from time to time */
-        if (!(loops++ % 1000)) {
+        if (!(loops++ % 1000)) {//每隔1000次，记录一次读取文件进度,同时执行 aeProcessEvents以免读取文件太长导致client阻塞
             loadingProgress(ftello(fp));
             processEventsWhileBlocked();
         }
 
-        if (fgets(buf,sizeof(buf),fp) == NULL) {
-            if (feof(fp))
+        if (fgets(buf,sizeof(buf),fp) == NULL) {//发生错误，或者到末尾
+            if (feof(fp))//到末尾
                 break;
             else
                 goto readerr;
@@ -802,7 +806,7 @@ int loadAppendOnlyFile(char *filename) {
         fakeClient->argc = argc;
         fakeClient->argv = argv;
 
-        for (j = 0; j < argc; j++) {
+        for (j = 0; j < argc; j++) {//解析命令
             /* Parse the argument len. */
             char *readres = fgets(buf,sizeof(buf),fp);
             if (readres == NULL || buf[0] != '$') {
@@ -826,7 +830,7 @@ int loadAppendOnlyFile(char *filename) {
             argv[j] = createObject(OBJ_STRING,argsds);
 
             /* Discard CRLF. */
-            if (fread(buf,2,1,fp) == 0) {
+            if (fread(buf,2,1,fp) == 0) { //读取\r\n 
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
@@ -897,11 +901,11 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     }
 
 uxeof: /* Unexpected AOF end of file. */
-    if (server.aof_load_truncated) {
+    if (server.aof_load_truncated) { //这个参数设置后可以接受aof文件结尾出现错误格式
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file !!!");
         serverLog(LL_WARNING,"!!! Truncating the AOF at offset %llu !!!",
             (unsigned long long) valid_up_to);
-        if (valid_up_to == -1 || truncate(filename,valid_up_to) == -1) {
+        if (valid_up_to == -1 || truncate(filename,valid_up_to) == -1) { //去掉格式不对的结尾
             if (valid_up_to == -1) {
                 serverLog(LL_WARNING,"Last valid command offset is invalid");
             } else {
