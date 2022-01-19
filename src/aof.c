@@ -935,10 +935,12 @@ fmterr: /* Format error. */
     exit(1);
 }
 
+
+//---------------------------------------------------------------------------------------
+//---------------------将数据转化为命令----------------------------------------------------
 /* ----------------------------------------------------------------------------
  * AOF rewrite
  * ------------------------------------------------------------------------- */
-
 /* Delegate writing an object to writing a bulk string or bulk long long.
  * This is not placed in rio.c since that adds the server.h dependency. */
 int rioWriteBulkObject(rio *r, robj *obj) {
@@ -1306,6 +1308,8 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
     }
     return io.error ? 0 : 1;
 }
+//---------------------将数据转化为命令----------------------------------------------------
+//---------------------------------------------------------------------------------------
 
 /* This function is called by the child rewriting the AOF file to read
  * the difference accumulated from the parent into a buffer, that is
@@ -1322,6 +1326,7 @@ ssize_t aofReadDiffFromParent(void) {
     return total;
 }
 
+//所有数据库的key，value都转化为命令写入rio缓冲
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1404,6 +1409,7 @@ werr:
  * log Redis uses variadic commands when possible, such as RPUSH, SADD
  * and ZADD. However at max AOF_REWRITE_ITEMS_PER_CMD items per time
  * are inserted using a single command. */
+//aof write 具体执行函数
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp;
@@ -1422,10 +1428,10 @@ int rewriteAppendOnlyFile(char *filename) {
     server.aof_child_diff = sdsempty();
     rioInitWithFile(&aof,fp);
 
-    if (server.aof_rewrite_incremental_fsync)
+    if (server.aof_rewrite_incremental_fsync) //自动同步到fp
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
 
-    if (server.aof_use_rdb_preamble) {
+    if (server.aof_use_rdb_preamble) { //是否是混合储存
         int error;
         if (rdbSaveRio(&aof,&error,RDB_SAVE_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
@@ -1437,8 +1443,8 @@ int rewriteAppendOnlyFile(char *filename) {
 
     /* Do an initial slow fsync here while the parent is still sending
      * data, in order to make the next final fsync faster. */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
+    if (fflush(fp) == EOF) goto werr; //同步到操作系统内核
+    if (fsync(fileno(fp)) == -1) goto werr; //内核同步到磁盘
 
     /* Read again a few times to get more data from the parent.
      * We can't read forever (the server may receive data from clients
@@ -1448,7 +1454,7 @@ int rewriteAppendOnlyFile(char *filename) {
      * happens after 20 ms without new data). */
     int nodata = 0;
     mstime_t start = mstime();
-    while(mstime()-start < 1000 && nodata < 20) {
+    while(mstime()-start < 1000 && nodata < 20) { //连续20毫秒没有读到内容或者读取父进程消息超过1秒就退出
         if (aeWait(server.aof_pipe_read_data_from_parent, AE_READABLE, 1) <= 0)
         {
             nodata++;
@@ -1460,7 +1466,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
 
     /* Ask the master to stop sending diffs. */
-    if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
+    if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr; //让父进程停止发送差异命令
     if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
         goto werr;
     /* We read the ACK from the server using a 10 seconds timeout. Normally
@@ -1471,13 +1477,13 @@ int rewriteAppendOnlyFile(char *filename) {
     serverLog(LL_NOTICE,"Parent agreed to stop sending diffs. Finalizing AOF...");
 
     /* Read the final diff if any. */
-    aofReadDiffFromParent();
+    aofReadDiffFromParent();//父进程在收到结束信号之前还会发送数据，最后读取这部分数据
 
     /* Write the received diff to the file. */
     serverLog(LL_NOTICE,
         "Concatenating %.2f MB of AOF diff received from parent.",
         (double) sdslen(server.aof_child_diff) / (1024*1024));
-    if (rioWrite(&aof,server.aof_child_diff,sdslen(server.aof_child_diff)) == 0)
+    if (rioWrite(&aof,server.aof_child_diff,sdslen(server.aof_child_diff)) == 0) //将剩余的diff数据写入
         goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
@@ -1487,7 +1493,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
-    if (rename(tmpfile,filename) == -1) {
+    if (rename(tmpfile,filename) == -1) {//最后将临时文件改为正式aof文件
         serverLog(LL_WARNING,"Error moving temp append only file on the final destination: %s", strerror(errno));
         unlink(tmpfile);
         return C_ERR;
@@ -1518,7 +1524,7 @@ void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (read(fd,&byte,1) == 1 && byte == '!') {
         serverLog(LL_NOTICE,"AOF rewrite child asks to stop sending diffs.");
         server.aof_stop_sending_diff = 1;
-        if (write(server.aof_pipe_write_ack_to_child,"!",1) != 1) {
+        if (write(server.aof_pipe_write_ack_to_child,"!",1) != 1) { //发送确认结束消息
             /* If we can't send the ack, inform the user, but don't try again
              * since in the other side the children will use a timeout if the
              * kernel can't buffer our write, or, the children was
@@ -1549,6 +1555,8 @@ int aofCreatePipes(void) {
     /* Parent -> children data is non blocking. */
     if (anetNonBlock(NULL,fds[0]) != ANET_OK) goto error;
     if (anetNonBlock(NULL,fds[1]) != ANET_OK) goto error;
+
+    //监听child进程结束读取diff消息的 "!"
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
 
     server.aof_pipe_write_data_to_child = fds[1];
