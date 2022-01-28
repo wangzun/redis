@@ -2789,7 +2789,6 @@ int processCommand(client *c) {
 
 /* Close listening sockets. Also unlink the unix domain socket if
  * unlink_unix_socket is non-zero. */
-//关闭监听端口
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 

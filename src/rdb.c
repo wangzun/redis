@@ -109,6 +109,7 @@ time_t rdbLoadTime(rio *rdb) {
     return (time_t)t32;
 }
 
+//使用小端储存
 int rdbSaveMillisecondTime(rio *rdb, long long t) {
     int64_t t64 = (int64_t) t;
     memrev64ifbe(&t64); /* Store in little endian. */
@@ -137,6 +138,7 @@ long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
 /* Saves an encoded length. The first two bits in the first byte are used to
  * hold the encoding type. See the RDB_* definitions for more information
  * on the types of encoding. */
+//储存长度，不同大小用不同方式储存
 int rdbSaveLen(rio *rdb, uint64_t len) {
     unsigned char buf[2];
     size_t nwritten;
